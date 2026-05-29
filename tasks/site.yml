@@ -23,21 +23,27 @@
 
 - name: site includes
   template:
-    dest: '{{ apache_etcdir }}/{{ item | basename | regex_replace(".j2$","") }}'
+    dest: '{{ apache_etcdir }}/{{ file | basename | regex_replace(".j2$","") }}'
     src: '{{ lookup("first_found", include_locations) }}'
     force: '{{ apache_rewrite_site_config }}'
   loop: '{{ [site] | json_query("[?apache_includes].apache_includes") 
   | union([site] | json_query("[?prefixes].prefixes[].apache_includes")) | list | flatten | unique }}'
+  loop_control:
+    label: '{{ file }}'
+    loop_var: file
   when: '"apache_includes" in site or "prefixes" in site'
   notify: reload apache
 
 - name: site configs
   template:
-    dest: '{{ apache_etcdir }}/{{ item | basename | regex_replace(".j2$","") }}'
+    dest: '{{ apache_etcdir }}/{{ file | basename | regex_replace(".j2$","") }}'
     src: '{{ lookup("first_found", include_locations) }}'
     force: '{{ apache_rewrite_site_config }}'
   loop: '{{ [site] | json_query("[?apache_configs].apache_includes")
   | union([site] | json_query("[?prefixes].prefixes[].apache_includes")) | list | flatten | unique }}'
+  loop_control:
+    label: '{{ file }}'
+    loop_var: file
   when: '"apache_configs" in site or "prefixes" in site'
   notify: reload apache
 

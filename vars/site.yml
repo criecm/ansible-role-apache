@@ -5,12 +5,12 @@ siteconf_locations:
   - templates/site.conf.j2
 
 include_locations:
-  - '{{ item }}.j2'
-  - '{{ item }}'
-  - '{{ playbook_dir }}/templates/{{ site.id }}/apache/{{ item }}.j2'
-  - '{{ playbook_dir }}/files/{{ site.id }}/apache/{{ item }}'
-  - 'templates/apache/{{ item }}.j2'
-  - '{{ playbook_dir }}/files/apache/{{ item }}'
+  - '{{ file }}.j2'
+  - '{{ file }}'
+  - '{{ playbook_dir }}/templates/{{ site.id }}/apache/{{ file }}.j2'
+  - '{{ playbook_dir }}/files/{{ site.id }}/apache/{{ file }}'
+  - 'templates/apache/{{ file }}.j2'
+  - '{{ playbook_dir }}/files/apache/{{ file }}'
 
 site_port: '{% if "tls_cert" in onesite and onesite.tls_cert != "" %}443{% else %}80{% endif %}'
 
