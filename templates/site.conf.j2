@@ -36,10 +36,10 @@ Protocols {{ site.protocols }}
   SSLCertificateFile {{ tls_dir }}/{{ site.tls_cert }}
   SSLCertificateKeyFile {{ tls_dir }}/private/{{ site.tls_key }}
 
-{%   if "hsts" in site %}
+{%   if "tls_hsts" in site or site.tls_redir | bool %}
   # + HSTS
   Header unset Strict-Transport-Security
-  Header set Strict-Transport-Security "max-age={{ site.hsts | default('31536000') }}"
+  Header set Strict-Transport-Security "max-age={{ site.tls_hsts | default('31536000') }}"
 {%-   endif %}
 
 {%   if "backends" in site %}
@@ -52,7 +52,6 @@ Protocols {{ site.protocols }}
 
 {% for directive in site.apache_directives %}
   {{ directive }}
-
 {% endfor %}
 
 {% if backends | count() > 0 %}
@@ -164,7 +163,6 @@ Protocols {{ site.protocols }}
 {%   if "apache_directives" in prefix and prefix.apache_directives | count > 0 %}
 {%     for directive in prefix.apache_directives %}
     {{ directive }}
-
 {%     endfor %}
 {%   endif %}
 

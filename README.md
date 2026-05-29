@@ -119,7 +119,7 @@ Most of these are used in bundled site.conf.j2 template only, except `id`, `apac
   file name, will be searched for in files/tls/ and copied in {prefix}/etc/ssl/
 * `tls_key ([])`:
   file name, will be searched for in files/tls/ and copied in {prefix}/etc/ssl/private/
-* `tls_hsts (31536000)`:
+* `tls_hsts (31536000 if tls_redir)`:
   will add a Strict-Transport-Security header with provided value
 * `tls_redir (False)`:
   will define an http vhost redirecting to https if True
