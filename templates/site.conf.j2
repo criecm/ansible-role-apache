@@ -113,10 +113,15 @@ Protocols {{ site.protocols }}
 
 {% for prefix in site.prefixes %}
 {% if "backends" in prefix %}
-{%   if not prefix.prefixbackend | default(False) %}
+{%   if not "prefixbackend" in prefix %}
 {%     if prefix.backends | count() > 1 %}
-  # prefix {{ prefix.path }} load balancer
-  <Proxy balancer://{{ site.id }}{{ prefix.path | regex_replace('/','_') }}>
+{%       if "path" in prefix %}
+{%         set prefid=prefix.path | regex_replace('/','_') %}
+{%       elif "regex" in prefix %}
+{%         set prefid=prefix.regex | regex_replace('[^a-z0-9]','') %}
+{%       endif %}
+  # prefix {{ prefix.path | default(prefix.regex) }} load balancer
+  <Proxy balancer://{{ site.id }}{{ prefid }}>
 {%       for backend in prefix.backends %}
 {%         if backend is search("http") %}
 {%           set myback=backend | regex_replace("^(.*//[^/ ]*)/[^ ]*( .*)?$","\\1\\2") %}
@@ -126,7 +131,7 @@ Protocols {{ site.protocols }}
     BalancerMember {{ myback }}{% if myback is not search("route=") %} route={{ myback | regex_replace("^.*//([^/\.]*).*","\\1") }}{% endif %}{% if myback is not search("connectiontimeout=") %} connectiontimeout=3{% endif %}
 
 {%       endfor %}
-    ProxySet stickysession={{ site.id }}{{ prefix.path | regex_replace('/','_') }}B
+    ProxySet stickysession={{ site.id }}{{ prefid }}B
 {%       if prefix.failonstatus is defined %}
     ProxySet failonstatus={{ prefix.failonstatus | join(",") }}
 {%       endif %}
@@ -134,7 +139,7 @@ Protocols {{ site.protocols }}
 
 {%     endif %}
 {%   else %}
-{%     set prefixbackend=prefix.prefixbackend+prefix.path %}
+{%     set prefixbackend=prefix.prefixbackend+prefid %}
 {%   endif %}
 {% endif %}
 {%- endfor %}
@@ -151,10 +156,18 @@ Protocols {{ site.protocols }}
 {% endif %}
 
 {% for prefix in site.prefixes %}
+{%   if "path" in prefix %}
+{%     set prefid=prefix.path | regex_replace('/','_') %}
   # prefix {{ prefix.path }}
   <Location "{{ prefix.path }}">
+{%   elif "regex" in prefix %}
+  <LocationMatch "{{ prefix.regex }}">
+{%     set prefid=prefix.regex | regex_replace('[^a-z0-9]','') %}
+{%   else %}
+  {{ undef(hint="prefix need path or regex") }}
+{%   endif %}
 {%   if "apache_includes" in prefix and prefix.apache_includes | count > 0 %}
-    # prefix."{{ prefix.path }}".apache_includes
+    # prefix."{{ prefix.path | default(prefix.regex) }}".apache_includes
 {%     for include in prefix.apache_includes %}
     Include {{ apache_etcdir }}/{{ include | basename | regex_replace(".j2$","") }}
 
@@ -168,7 +181,7 @@ Protocols {{ site.protocols }}
 
 {%   if prefix.allow_from_nets | default([]) | count + prefix.allow_from | default([]) | count + prefix.apache_includes | default([]) | count > 0 %}
 {%     if prefix.allow_from_nets | default([]) | count > 0 %}
-    # prefix."{{ prefix.path }}".allow_from_nets
+    # prefix."{{ prefix.path | default(prefix.regex) }}".allow_from_nets
 {%       for net in prefix.allow_from_nets %}
     Require ip {{ net }}
 {%       endfor %}
@@ -189,10 +202,10 @@ Protocols {{ site.protocols }}
 {%       else %}
 {%         set prefixpath= prefix.backends[0] | regex_replace("^.*//[^/ ]+(/[^ ]*) ?.*$","\\1") %}
 {%       endif %}
-    Header add Set-Cookie "{{ site.id }}{{ prefix.path | regex_replace('/','_') }}B=.%{BALANCER_WORKER_ROUTE}e; path=/;HttpOnly;Secure;SameSite=strict" env=BALANCER_ROUTE_CHANGED
-    ProxyPass balancer://{{ site.id }}{{ prefix.path | regex_replace('/','_') }}{{ prefixpath }}
+    Header add Set-Cookie "{{ site.id }}{{ prefid }}B=.%{BALANCER_WORKER_ROUTE}e; path=/;HttpOnly;Secure;SameSite=strict" env=BALANCER_ROUTE_CHANGED
+    ProxyPass balancer://{{ site.id }}{{ prefid }}{{ prefixpath }}
     # {{ prefix.backends[0] }} -> {{ prefix.backends[0] | regex_replace("^.*//[^/]+(/[^ ]*)","\\1") }}
-    ProxyPassReverse balancer://{{ site.id }}{{ prefix.path | regex_replace('/','_') }}{{ prefixpath }}
+    ProxyPassReverse balancer://{{ site.id }}{{ prefid }}{{ prefixpath }}
 {%     else %}
     ProxyPass {{ prefix.prefixbackend }}
     ProxyPassReverse {{ prefix.prefixbackend }}
@@ -204,7 +217,11 @@ Protocols {{ site.protocols }}
     ProxyPassReverse {{ prefix.backends[0] | regex_replace(" .*$","") }}
 
 {%   endif %}
+{%   if "path" in prefix %}
   </Location>
+{%   elif "regex" in prefix %}
+  </LocationMatch>
+{%   endif %}
 {% endfor %}
 
 {% if "apache_includes" in site %}

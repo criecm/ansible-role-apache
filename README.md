@@ -68,11 +68,11 @@ Most of these are used in bundled site.conf.j2 template only, except `id`, `apac
   eg: ``` - 'ajp://jentest1.nettest.egim:8009 route=jentest1 timeout=20 loadfactor=100'```
   - if only one is defined, see https://httpd.apache.org/docs/2.4/mod/mod_proxy.html 
   - if more than one, see https://httpd.apache.org/docs/2.4/mod/mod_proxy_balancer.html
-  - if you define `prefixes`, backends will only be used for them.
 * `apache_directives ([])`:
   list of apache config lines. MUST be valid config lines in virtualhost section
 * `prefixes ([{path: /}])`:
-  list of pathes allowed on this virtualhost, with
+  list of dicts for pathes allowed on this virtualhost, with
+    `path ("/")` (Location) or `regex` (LocationMatch) - one of these is MANDATORY
     `allow_from_nets ([])` listing IP(v4|v6) prefixes allowed
     `apache_includes ([])` as in sites
     `apache_configs ([])` as in sites
