@@ -161,6 +161,7 @@ Protocols {{ site.protocols }}
   # prefix {{ prefix.path }}
   <Location "{{ prefix.path }}">
 {%   elif "regex" in prefix %}
+  # prefix ~ {{ prefix.regex }}
   <LocationMatch "{{ prefix.regex }}">
 {%     set prefid=prefix.regex | regex_replace('[^a-z0-9]','') %}
 {%   else %}
@@ -178,7 +179,6 @@ Protocols {{ site.protocols }}
     {{ directive }}
 {%     endfor %}
 {%   endif %}
-
 {%   if prefix.allow_from_nets | default([]) | count + prefix.allow_from | default([]) | count + prefix.apache_includes | default([]) | count > 0 %}
 {%     if prefix.allow_from_nets | default([]) | count > 0 %}
     # prefix."{{ prefix.path | default(prefix.regex) }}".allow_from_nets
