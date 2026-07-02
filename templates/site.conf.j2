@@ -1,8 +1,30 @@
+{# create full list of backends allbackends #}
+{% set allbackends = [] %}
+{# map prefix ids to backends ids #}
+{% set pbackends = [] %}
+{# map backends ids to string to be used #}
+{% set backmap = [] %}
 {% if "backends" in site and site.backends %}
-{% set backends = site.backends %}
+{%   set backends = site.backends %}
+{%   set _ = allbackends.append(site.backends) %}
 {% else %}
-{% set backends = [] %}
+{%   set backends = [] %}
 {% endif %}
+{% for prefix in site.prefixes %}
+{%   if "backends" in prefix %}
+{%     if allbackends | map("join","+") | select("match",prefix.backends | map("regex_replace","^(.*//[^/]*).*","\\1") | join("+") | regex_escape) | count == 0 %}
+{%       set _ = allbackends.append(prefix.backends | map("regex_replace","^(.*//[^/]*).*","\\1")) %}
+{%       set _ = pbackends.append(allbackends | count - 1) %}
+{%     else %}
+{%       set _ = pbackends.append(allbackends.index(prefix.backends | map("regex_replace","^(.*//[^/]*).*","\\1"))) %}
+{%     endif %}
+{%   else %}
+{#     keep index same as prefixes #}
+{%     set _ = pbackends.append(false) %}
+{%   endif %}
+{% endfor %}
+# allbackends = {{ allbackends | to_json }}
+# prefixes backends = {{ pbackends | to_json }}
 # {{ ansible_managed }}
 <VirtualHost {% if site.listen | join(" ") is search(':') %}{{ site.listen | join(" ") }}{% else %}{% for l in site.listen %}*:{{ l }} {% endfor %}{% endif %}>
   ServerName {{ site.name }}
@@ -42,7 +64,7 @@ Protocols {{ site.protocols }}
   Header set Strict-Transport-Security "max-age={{ site.tls_hsts | default('31536000') }}"
 {%-   endif %}
 
-{%   if "backends" in site %}
+{%   if allbackends | count > 0 %}
   # reverse-proxy HTTPS
   RequestHeader set X-Forwarded-Proto "https"
   RequestHeader set X-Forwarded-HTTPS "On"
@@ -54,33 +76,39 @@ Protocols {{ site.protocols }}
   {{ directive }}
 {% endfor %}
 
-{% if backends | count() > 0 %}
+{% if allbackends | count() > 0 %}
   # backends: {{ backends | join(",") }}
   # keep host name in request
   ProxyPreserveHost On
-{%   if backends | count() > 1 %}
-{%     if not site.sitebackend | default(False) %}
-  # load balancer
-{%       if not site.stickysession | default(False) %}
-  # set cookie for sticky-sessions
-  Header add Set-Cookie "{{ site.id }}B=.%{BALANCER_WORKER_ROUTE}e; path=/;HttpOnly;Secure;SameSite=strict" env=BALANCER_ROUTE_CHANGED
-{%       endif %}
-  <Proxy balancer://{{ site.id }}>
-{%       for backend in backends %}
+{%   for backs in allbackends %}
+{%     if backs | count > 1 %}
+{# map pid with backend string to be used later #}
+{%       set _ = backmap.append("balancer://"+site.id+loop.index | string) %}
+  # load balancer {{ loop.index }}
+  <Proxy balancer://{{ site.id }}{{ loop.index }}>
+{%       for backend in backs %}
     BalancerMember {{ backend }}{% if backend is not search("route=") %} route={{ backend | regex_replace("^.*//([^/\.]*).*","\\1") }}{% endif %}{% if backend is not search("connectiontimeout=") %} connectiontimeout=3{% endif %}
 
 {%       endfor %}
     Require all granted
-    ProxySet stickysession={{ site.stickysession | default(site.id+"B") }}
-{%       if site.failonstatus is defined %}
+    ProxySet stickysession={{ site.stickysession | default(site.id+"B"+loop.index | string) }}
+{%         if "failonstatus" in site %}
     ProxySet failonstatus={{ site.failonstatus | join(",") }}
-{%       endif %}
+{%         endif %}
   </Proxy>
-{%       set sitebackend = "balancer://"+site.id %}
+{%     elif backs | count == 1 %}
+{# map pid with backend string to be used later #}
+{%       set _ = backmap.append(backs[0]) %}
+  # simple reverse-proxy (backends = {{ backs[0] }})
+  <Proxy {{ backs[0] | regex_replace(" .*$","")}}>
+    Require all granted
+  </Proxy>
 {%     else %}
-{%       set sitebackend = site.sitebackend %}
+{# map pid with backend string to be used later #}
+{%       set _ = backmap.append(site.sitebackend) %}
 {%     endif %}
-
+{%   endfor %}
+{%   if backmap | select("match","balancer:") | count > 0 %}
 {%     if admin_from %}
   # balancer-manager from admin ip's
   <Location "/balancer-manager">
@@ -91,82 +119,41 @@ Protocols {{ site.protocols }}
   </Location>
   ProxyPass /balancer-manager !
 {%     endif %}
-
-{%   elif backends | count() == 1 %}
-  # simple reverse-proxy (backends = {{ backends[0] }})
-  <Proxy {{ backends[0] | regex_replace(" .*$","")}}>
-    Require all granted
-  </Proxy>
-{% set sitebackend = backends[0] | regex_replace("/? .*$","") %}
-
 {%   endif %}
+{% endif %}
 
-{%   if monitoring_from | count > 0 and site.fcgi_status_path %}
+# backmap = {{ backmap | to_json }}
+{% if monitoring_from | count > 0 and site.fcgi_status_path %}
   # monitoring
   <Location "{{ site.fcgi_status_path }}">
-{%     for net in monitoring_from + admin_from | default([]) %}
+{%   for net in monitoring_from + admin_from | default([]) %}
     Require ip {{ net }}
-{%     endfor %}
+{%   endfor %}
   </Location>
-{%   endif %}
 {% endif %}
 
-{% for prefix in site.prefixes %}
-{% if "backends" in prefix %}
-{%   if not "prefixbackend" in prefix %}
-{%     if prefix.backends | count() > 1 %}
-{%       if "path" in prefix %}
-{%         set prefid=prefix.path | regex_replace('/','_') %}
-{%       elif "regex" in prefix %}
-{%         set prefid=prefix.regex | regex_replace('[^a-z0-9]','') %}
-{%       endif %}
-  # prefix {{ prefix.path | default(prefix.regex) }} load balancer
-  <Proxy balancer://{{ site.id }}{{ prefid }}>
-{%       for backend in prefix.backends %}
-{%         if backend is search("http") %}
-{%           set myback=backend | regex_replace("^(.*//[^/ ]*)/[^ ]*( .*)?$","\\1\\2") %}
-{%         else %}
-{%           set myback=backend | regex_replace("^(.*//[^/ ]*)/[^ ]*( .*)?$","\\1\\2") %}
-{%         endif %}
-    BalancerMember {{ myback }}{% if myback is not search("route=") %} route={{ myback | regex_replace("^.*//([^/\.]*).*","\\1") }}{% endif %}{% if myback is not search("connectiontimeout=") %} connectiontimeout=3{% endif %}
-
-{%       endfor %}
-    ProxySet stickysession={{ site.id }}{{ prefid }}B
-{%       if prefix.failonstatus is defined %}
-    ProxySet failonstatus={{ prefix.failonstatus | join(",") }}
-{%       endif %}
-  </Proxy>
-
-{%     endif %}
-{%   else %}
-{%     set prefixbackend=prefix.prefixbackend+prefid %}
-{%   endif %}
-{% endif %}
-{%- endfor %}
 
 {% if "backend" in site and site.backend == "php-fpm" %}
   # backend = php-fpm, fcgisocket = {{ site.fcgisocket }}
   <FilesMatch ".*\.php$">
-{% if site.fcgisocket is match ("^/") %}
+{%   if site.fcgisocket is match ("^/") %}
     SetHandler "proxy:unix:{{ site.fcgisocket }}|fcgi://localhost/"
-{% else %}
+{%   else %}
     SetHandler "proxy:fcgi://fcgisocket"
-{% endif %}
+{%   endif %}
   </FilesMatch>
 {% endif %}
 
 {% for prefix in site.prefixes %}
 {%   if "path" in prefix %}
-{%     set prefid=prefix.path | regex_replace('/','_') %}
-  # prefix {{ prefix.path }}
-  <Location "{{ prefix.path }}">
+{%     set prefixtype="Location" %}
 {%   elif "regex" in prefix %}
-  # prefix ~ {{ prefix.regex }}
-  <LocationMatch "{{ prefix.regex }}">
-{%     set prefid=prefix.regex | regex_replace('[^a-z0-9]','') %}
+{%     set prefixtype="LocationMatch" %}
 {%   else %}
   {{ undef(hint="prefix need path or regex") }}
 {%   endif %}
+  # prefix {{ prefix.path | default(prefix.regex) }} index {{ loop.index }}
+  <{{ prefixtype }} "{{ prefix.path | default(prefix.regex) }}">
 {%   if "apache_includes" in prefix and prefix.apache_includes | count > 0 %}
     # prefix."{{ prefix.path | default(prefix.regex) }}".apache_includes
 {%     for include in prefix.apache_includes %}
@@ -195,33 +182,32 @@ Protocols {{ site.protocols }}
 {%   if "options" in prefix %}
     Options {{ prefix.options | join(" ") }}
 {%   endif %}
-{%   if "backends" in prefix and prefix.backends | count() > 1 %}
-{%     if not "prefixbackend" in prefix %}
-{%       if ( prefix.backends[0] | regex_replace("^.*//[^/ ]+(/[^ ]*) ?.*$","\\1") == prefix.backends[0] ) %}
-{%         set prefixpath="" %}
-{%       else %}
-{%         set prefixpath= prefix.backends[0] | regex_replace("^.*//[^/ ]+(/[^ ]*) ?.*$","\\1") %}
-{%       endif %}
-    Header add Set-Cookie "{{ site.id }}{{ prefid }}B=.%{BALANCER_WORKER_ROUTE}e; path=/;HttpOnly;Secure;SameSite=strict" env=BALANCER_ROUTE_CHANGED
-    ProxyPass balancer://{{ site.id }}{{ prefid }}{{ prefixpath }}
-    # {{ prefix.backends[0] }} -> {{ prefix.backends[0] | regex_replace("^.*//[^/]+(/[^ ]*)","\\1") }}
-    ProxyPassReverse balancer://{{ site.id }}{{ prefid }}{{ prefixpath }}
+
+{%   if "backends" in prefix or ( prefix.path == "/" and "backends" in site ) %}
+{%     if "prefixbackend" in prefix %}
+{%       set prefixbackend=site.prefixbackend %}
 {%     else %}
-    ProxyPass {{ prefix.prefixbackend }}
-    ProxyPassReverse {{ prefix.prefixbackend }}
+{%       if prefix.path == "/" and "backends" in site %}
+{%         set prefixbackid=0 %}
+{%         set prefixbackend=backmap[0] %}
+{%         set prefixpath="/" %}
+{%       else %}
+{%         set prefixbackid=pbackends[loop.index - 1] %}
+{%         set prefixbackend=backmap[prefixbackid] %}
+{%         if ( prefix.backends[0] | regex_replace("^.*//[^/ ]+(/[^ ]*) ?.*$","\\1") == prefix.backends[0] ) %}
+{%           set prefixpath="" %}
+{%         else %}
+{%           set prefixpath=prefix.backends[0] | regex_replace("^.*//[^/ ]+(/[^ ]*) ?.*$","\\1") %}
+{%         endif %}
+{%       endif %}
+    Header add Set-Cookie "{{ site.id }}B{{ prefixbackid + 1 }}=.%{BALANCER_WORKER_ROUTE}e; path=/;HttpOnly;Secure;SameSite=strict" env=BALANCER_ROUTE_CHANGED
+    ProxyPass {{ prefixbackend }}{{ prefixpath }}{% if allbackends[prefixbackid][0] is search("=") and  allbackends[prefixbackid] | count > 1 %} {{ allbackends[prefixbackid][0] | regex_replace("^[^ ]* ","") }}{% endif %}
 
+    ProxyPassReverse {{ prefixbackend }}{{ prefixpath }}
 {%     endif %}
-{%   elif "backends" in prefix and prefix.backends | count() == 1 %}
-    ProxyPass {{ prefix.backends[0] | regex_replace(" .*$","") }}{% if prefix.backends[0] is search("=") %} {{ prefix.backends[0] | regex_replace("^[^ ]* ","") }}{% endif %}
-
-    ProxyPassReverse {{ prefix.backends[0] | regex_replace(" .*$","") }}
-
 {%   endif %}
-{%   if "path" in prefix %}
-  </Location>
-{%   elif "regex" in prefix %}
-  </LocationMatch>
-{%   endif %}
+
+  </{{ prefixtype }}>
 {% endfor %}
 
 {% if "apache_includes" in site %}
@@ -230,15 +216,6 @@ Protocols {{ site.protocols }}
   Include {{ apache_etcdir }}/{{ include | basename | regex_replace(".j2$","") }}
 
 {%   endfor %}
-{% endif %}
-
-{% if sitebackend | default(False) %}
-  ProxyPass / {{ sitebackend | regex_replace(" .*$","") }}/{% if site.backends | count() == 1 and site.backends[0] is search("=") %} {{ site.backends[0] | regex_replace("^[^ ]* ","") }}{% endif %}
-
-  ProxyPassReverse / {{ sitebackend | regex_replace(" .*$","") }}/
-
-
-
 {% endif %}
 
 {% if "cache" in site %}
