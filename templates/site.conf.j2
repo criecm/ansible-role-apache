@@ -23,8 +23,6 @@
 {%     set _ = pbackends.append(false) %}
 {%   endif %}
 {% endfor %}
-# allbackends = {{ allbackends | to_json }}
-# prefixes backends = {{ pbackends | to_json }}
 # {{ ansible_managed }}
 <VirtualHost {% if site.listen | join(" ") is search(':') %}{{ site.listen | join(" ") }}{% else %}{% for l in site.listen %}*:{{ l }} {% endfor %}{% endif %}>
   ServerName {{ site.name }}
@@ -122,7 +120,11 @@ Protocols {{ site.protocols }}
 {%   endif %}
 {% endif %}
 
+{# debug
+# allbackends = {{ allbackends | to_json }}
+# prefixes backends = {{ pbackends | to_json }}
 # backmap = {{ backmap | to_json }}
+#}
 {% if monitoring_from | count > 0 and site.fcgi_status_path %}
   # monitoring
   <Location "{{ site.fcgi_status_path }}">
@@ -152,7 +154,7 @@ Protocols {{ site.protocols }}
 {%   else %}
   {{ undef(hint="prefix need path or regex") }}
 {%   endif %}
-  # prefix {{ prefix.path | default(prefix.regex) }} index {{ loop.index }}
+  # prefix {{ prefix.path | default(prefix.regex) }}
   <{{ prefixtype }} "{{ prefix.path | default(prefix.regex) }}">
 {%   if "apache_includes" in prefix and prefix.apache_includes | count > 0 %}
     # prefix."{{ prefix.path | default(prefix.regex) }}".apache_includes
