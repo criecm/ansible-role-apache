@@ -75,7 +75,7 @@ Protocols {{ site.protocols }}
 {% endfor %}
 
 {% if allbackends | count() > 0 %}
-  # backends: {{ backends | join(",") }}
+  # backends: {{ allbackends | join(",") }}
   # keep host name in request
   ProxyPreserveHost On
 {%   for backs in allbackends %}
