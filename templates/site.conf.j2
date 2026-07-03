@@ -185,11 +185,11 @@ Protocols {{ site.protocols }}
     Options {{ prefix.options | join(" ") }}
 {%   endif %}
 
-{%   if "backends" in prefix or ( prefix.path == "/" and "backends" in site ) %}
+{%   if "backends" in prefix or ( "path" in prefix and prefix.path == "/" and "backends" in site ) %}
 {%     if "prefixbackend" in prefix %}
 {%       set prefixbackend=site.prefixbackend %}
 {%     else %}
-{%       if prefix.path == "/" and "backends" in site %}
+{%       if "path" in prefix and prefix.path == "/" and "backends" in site %}
 {%         set prefixbackid=0 %}
 {%         set prefixbackend=backmap[0] %}
 {%         set prefixpath="/" %}
